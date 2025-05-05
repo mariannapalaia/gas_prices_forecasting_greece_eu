@@ -1,0 +1,1500 @@
+---
+title: "ITC6002 : Exploring and Analyzing Data"
+---
+
+#### B. Forecast the data of months 2-12 based on the first month’s data
+
+#### B(a) 3 different forecasting techniques to perform the forecasting of level (without trend or seasonality adjustments)
+
+Cleaned version of the dataset providing gasoline prices in Greece for year 2023.
+
+```{r}
+data2023 = read.csv("Energy_Prices2023.csv")
+data2023[is.na(data2023)] = 0
+data2023$date = as.Date(data2023$date, format = "%Y-%m-%d")
+data2023 = data2023[order(data2023$date),] # order by date to check dataset
+head(data2023)
+
+```
+
+```{r}
+library(dplyr)
+
+# group by month to use for naive
+gasMonthlyPrices2023 = data2023 %>% group_by(format(data2023$date, "%m")) %>%
+  summarise(gasPrices = mean(Gasoline100),
+            .groups = 'drop')
+
+#plot for monthly original values
+plot(gasMonthlyPrices2023$`format(data2023$date, "%m")`, col='red',
+     gasMonthlyPrices2023$gasPrices, type = "o", main="Gasoline100 Prices 2023",
+     xlab = "Months", ylab = "Value in EUR", xaxt = "n")
+axis(1, at = gasMonthlyPrices2023$`format(data2023$date, "%m")`, 
+     labels = format(gasMonthlyPrices2023$`format(data2023$date, "%m")`))
+grid()
+
+```
+
+## i) Naive Method:
+
+```{r}
+# insert prices in a variable
+actual2023 <- gasMonthlyPrices2023$gasPrices
+naive2023 <- numeric(length(actual2023))
+
+# iterate for the length of 'actual' variable to fill every value in 'naive' variable
+for (i in 1:length(actual2023))
+{
+  naive2023[i] <- actual2023[1]
+}
+
+cat('Actual Values Per Month\n')
+actual2023
+cat('\n')
+cat('Naive Method\n') 
+naive2023
+```
+
+Naive Method Plot:
+
+```{r}
+plot(actual2023, type='l', col='red', main='Actual VS Naive',
+                 xlab = "Months", ylab = "Value in EUR", xaxt = 'n')
+# axis(1, at = 1:length(data$TIME), labels = format(data$TIME, "%b"))
+lines(naive2023, type='l', col='purple')
+legend('topright', legend=c('Actual', 'Naive'), col='c'('red', 'purple'), lty=1)
+axis(1, at = gasMonthlyPrices2023$`format(data2023$date, "%m")`, 
+     labels = format(gasMonthlyPrices2023$`format(data2023$date, "%m")`))
+grid()
+```
+
+## ii) Moving Average Method:
+
+MA based on whole dataset
+
+```{r}
+#check moving average window in the whole dataset to see the fit
+
+# arbitrary choice of window before computing the optimal
+windowArbitrary <- 7
+
+moving_avg_WholeYear = c()
+
+# FOR loop to compute moving average
+for (i in 1:(length(data2023$Gasoline100) - windowArbitrary + 1)) {
+  windowSum <- sum(data2023$Gasoline100[i:(i + windowArbitrary - 1)])
+  avg <- windowSum / windowArbitrary
+  moving_avg_WholeYear <- c(moving_avg_WholeYear, avg)
+}
+
+#plot to visualize MA for 2023
+plot(data2023$Gasoline100, type = "l", col = "blue", xlab = "Days", ylab = "Value in EUR", main = "Testing Moving Average (7) for 2023")
+
+# moving average has fewer points so adjust to the length of the data
+lines((windowArbitrary:length(data2023$Gasoline100)), moving_avg_WholeYear, type = "l", col = "red")
+legend("topleft", legend = c("Actual Data", "Moving Average"), col = c("blue", "red"), lty = 1, pch = 1)
+```
+
+MA based on first month's data
+
+```{r}
+# compute values for months 2 to 12 based on january data
+# Gas Prices for Jan2023
+pricesJan23 <- data2023$Gasoline100[1:31]
+pricesmonth2to12_2023 <- data2023$Gasoline100[-(1:31)] 
+
+
+window = windowArbitrary
+
+movingavg_Jan23 = c()
+
+# FOR loop to compute moving average for January
+for (i in 1:(length(pricesJan23) - window + 1)) {
+  windowSum <- sum(pricesJan23[i:(i + window - 1)])
+  avg <- windowSum / window
+  movingavg_Jan23 <- c(movingavg_Jan23, avg)
+}
+
+# For loop to compute MA for feb to dec
+forecastedPrices = pricesJan23
+
+for (i in (length(pricesJan23)+1):(length(pricesJan23) + length(pricesmonth2to12_2023))) {
+  forecast = mean(forecastedPrices[(i - window):(i - 1)]) #calculate moving avergae for the forecast
+  forecastedPrices = c(forecastedPrices, forecast)
+}
+
+
+ForecastMA23Arb = c(rep(0, window-1), movingavg_Jan23, forecastedPrices[32:length(forecastedPrices)])
+head(ForecastMA23Arb, 40)
+
+
+```
+
+Compute optimal window
+
+```{r}
+window = seq(2, 200, by = 1) 
+# initialize to store values
+mad_MA23 = numeric(length(window)) # initialize to store all MAD values
+
+for (a in 1:length(window)) {
+  currentWindow  = window[a]
+
+  if (currentWindow  > length(pricesJan23)) {
+    mad_MA23[a] = NA
+    next
+  }
+  
+  movingavg_Jan23 = c()
+
+                    
+  # FOR loop to compute moving average for January
+  for (i in 1:(length(pricesJan23) - currentWindow  + 1)) {
+    windowSum <- sum(pricesJan23[i:(i + currentWindow  - 1)])
+    avg <- windowSum / currentWindow 
+    movingavg_Jan23 <- c(movingavg_Jan23, avg)
+  }
+
+   
+    eMA2023 = pricesJan23[currentWindow :length(pricesJan23)] - movingavg_Jan23
+    mad_MA23[a] = mean(abs(eMA2023))
+}
+
+# Find the optimal window size based on the lowest MAD value
+optimalWindow = window[which.min(mad_MA23)]
+cat('The optimal window is:', optimalWindow)
+
+
+```
+
+Compute forecast based on optimal window
+
+```{r}
+# compute values for months 2 to 12 based on january data
+# Gas Prices for Jan2023
+pricesJan23 <- data2023$Gasoline100[1:31]
+pricesmonth2to12_2023 <- data2023$Gasoline100[-(1:31)] 
+
+
+window = optimalWindow
+
+movingavg_Jan23 = c()
+
+# FOR loop to compute moving average for January
+for (i in 1:(length(pricesJan23) - window + 1)) {
+  windowSum <- sum(pricesJan23[i:(i + window - 1)])
+  avg <- windowSum / window
+  movingavg_Jan23 <- c(movingavg_Jan23, avg)
+}
+
+# For loop to compute MA for feb to dec
+forecastedPrices = pricesJan23
+
+for (i in (length(pricesJan23)+1):(length(pricesJan23) + length(pricesmonth2to12_2023))) {
+  forecast = mean(forecastedPrices[(i - window):(i - 1)]) #calculate moving avergae for the forecast
+  forecastedPrices = c(forecastedPrices, forecast)
+}
+
+
+ForecastMA23 = c(rep(0, window-1), movingavg_Jan23, forecastedPrices[32:length(forecastedPrices)])
+head(ForecastMA23, 40)
+
+```
+
+Moving Average Plot:
+
+```{r}
+
+plot(data2023$Gasoline100, type='l', col='black', main='2023 Actual VS MA',
+                 xlab = " ", ylab = "Value in EUR", xaxt = 'n')
+lines(ForecastMA23, type = "l", col = "red")
+lines(ForecastMA23Arb, type = "l", col = "blue")
+legend('topleft', legend=c('Actual', 'MA Optimal (2)','MA Arbitrary (7)'), col='c'('black', 'red', 'blue'), lty=1)
+grid()
+
+```
+
+## iii) Simple Exponential Smoothing (SES) Method:
+
+For arbitrary α = 0.5
+
+```{r}
+# forecast based on first month's data
+pricesJan23 <- data2023$Gasoline100[1:31]
+pricesmonth2to12_2023 <- data2023$Gasoline100[-(1:31)]
+
+alpha = 0.5
+SES_Jan23 = c()
+SES_Jan23[1] = pricesJan23[1]
+
+                    
+# FOR loop to compute SES for January
+for (i in 2:(length(pricesJan23)+1)) {
+  SES_Jan23[i] <- SES_Jan23[i - 1] + alpha * (pricesJan23[i - 1] - SES_Jan23[i - 1])
+}
+
+SES_2to12_23 = SES_Jan23
+# SES_2to12_23[1] = SES_Jan23[length(SES_Jan23)]
+
+# FOR loop to compute SES for feb to dec
+for (i in (length(pricesJan23)+2):(length(pricesJan23) + length(pricesmonth2to12_2023))) {
+  SES_2to12_23[i] <- SES_2to12_23[i - 1] + alpha * (SES_2to12_23[i - 1] - SES_2to12_23[i - 1])
+}
+
+ForecastSES23 = c(SES_Jan23, SES_2to12_23[33:length(SES_2to12_23)])
+
+head(ForecastSES23, 40)
+```
+
+Computing optimal α
+
+```{r}
+# forecast based on first month's data
+pricesJan23 <- data2023$Gasoline100[1:31]
+pricesmonth2to12_2023 <- data2023$Gasoline100[-(1:31)]
+
+alphaAll = seq(0.01, 1, by = 0.01) # α must be between 0 and 1
+# initialize to store values
+mad_exp23 = numeric(length(alphaAll)) # initialize to store all MAD values
+
+for (a in 1:length(alphaAll)) {
+  alpha = alphaAll[a]
+
+  SES_Jan23 = c()
+  SES_Jan23[1] = pricesJan23[1]
+
+                    
+# FOR loop to compute SES for January
+  for (i in 2:(length(pricesJan23)+1)) {
+    SES_Jan23[i] <- SES_Jan23[i - 1] + alpha * (pricesJan23[i - 1] - SES_Jan23[i - 1])
+    }
+  SES_2to12_23 = SES_Jan23
+# SES_2to12_23[1] = SES_Jan23[length(SES_Jan23)]
+
+# FOR loop to compute SES for feb to dec
+  for (i in (length(pricesJan23)+2):(length(pricesJan23) + length(pricesmonth2to12_2023))) {
+    SES_2to12_23[i] <- SES_2to12_23[i - 1] + alpha * (SES_2to12_23[i - 1] - SES_2to12_23[i - 1])
+    }
+  
+  ForecastSES23 = c(SES_Jan23, SES_2to12_23[33:length(SES_2to12_23)])
+#head(ForecastSES23, 40)
+  mad_exp23[a] = mean(abs(ForecastSES23 - data2023$Gasoline100))
+  mad_exp23
+}
+
+alphaOpt = alphaAll[which.min(mad_exp23)]
+
+# Print the optimal alpha
+cat('The optimal α is:', alphaOpt, '\n\n')
+cat('The min MAD is:', min(mad_exp23))
+```
+
+For optimal α = 0.15
+
+```{r}
+# forecast based on first month's data
+pricesJan23 <- data2023$Gasoline100[1:31]
+pricesmonth2to12_2023 <- data2023$Gasoline100[-(1:31)]
+
+alpha = alphaOpt
+SES_Jan23Opt = c()
+SES_Jan23Opt[1] = pricesJan23[1]
+
+                    
+# FOR loop to compute SES for January
+for (i in 2:(length(pricesJan23)+1)) {
+  SES_Jan23Opt[i] <- SES_Jan23Opt[i - 1] + alpha * (pricesJan23[i - 1] - SES_Jan23Opt[i - 1])
+}
+
+SES_2to12_23 = SES_Jan23Opt
+
+# FOR loop to compute SES for feb to dec
+for (i in (length(pricesJan23)+2):(length(pricesJan23) + length(pricesmonth2to12_2023))) {
+  SES_2to12_23[i] <- SES_2to12_23[i - 1] + alpha * (SES_2to12_23[i - 1] - SES_2to12_23[i - 1])
+}
+
+ForecastSES23Opt = c(SES_Jan23Opt, SES_2to12_23[33:length(SES_2to12_23)])
+
+head(ForecastSES23Opt, 40)
+```
+
+Exponential Smoothing plot
+
+```{r}
+plot(data2023$date, data2023$Gasoline100, type='l', col='blue', main='Actual VS Exp Smoothing',
+     xlab="Months", ylab="Value in EUR")
+lines(data2023$date, ForecastSES23, col='green')  
+lines(data2023$date, ForecastSES23Opt, col='red') 
+legend('topleft', 
+       legend=c('Actual', 'Arbitrary 0.5', 'Optimal 0.15'), 
+       col=c('blue', 'green', 'red'), 
+       lty=1)
+grid()
+```
+
+#### B(b) Compare these 3 techniques in 2 different ways.
+
+### i) Mean Squared Error (MSE)
+
+```{r}
+#MSE for Naive Method
+eNaive2023 = actual2023-naive2023
+mseNaive2023 = mean((eNaive2023)^2)
+cat('Naive MSE:\n')
+mseNaive2023
+cat('\n')
+
+#MSE for Moving Average Method
+# plotting only the values after the first window 
+eMA2023 = data2023$Gasoline100[optimalWindow:length(data2023$Gasoline100)] - ForecastMA23[optimalWindow:length(ForecastMA23)]
+mseMA2023 = mean((eMA2023)^2)
+cat('MA MSE:\n')
+mseMA2023
+cat('\n')
+
+#MSE for Exponential Smoothing Method
+eExpSm2023 = data2023$Gasoline100-ForecastSES23Opt
+mseExpSm2023 = mean((eExpSm2023)^2)
+cat('Exp Smoothing MSE:\n')
+mseExpSm2023
+
+```
+
+Mean Squared Error Plot:
+
+```{r}
+# Compute average MSE for each method
+avgMSE_Naive <- mean((eNaive2023)^2)
+avgMSE_MA <- mean((eMA2023)^2)
+avgMSE_ExpSm <- mean((eExpSm2023)^2)
+
+plot(1, type="n", xlab="", ylab="Mean Squared Error (MSE)", xlim=c(0.5, 3.5), ylim=c(0, max(avgMSE_Naive, avgMSE_MA, avgMSE_ExpSm)*1.2), xaxt="n", main="Average Mean Squared Error")
+abline(h = avgMSE_Naive, col="blue", lwd=2, lty=2)
+abline(h = avgMSE_MA, col="red", lwd=2, lty=2)      
+abline(h = avgMSE_ExpSm, col="green", lwd=2, lty=2) 
+legend("bottomright", legend=c("Naive", "Moving Average", "Exp Smoothing"), col=c("blue", "red", "green"), lty=2, lwd=2)
+```
+
+### ii) Mean Absolute Percentage Error (MAPE)
+
+```{r}
+# we use the already computed values for error
+#Mean Absolute Percentage Error
+mapeNaive2023 = mean(abs((eNaive2023)/actual2023))*100
+cat('Naive MAPE:\n')
+mapeNaive2023
+cat('\n')
+
+
+mapeMA2023 = mean(abs((eMA2023)/ data2023$Gasoline100[optimalWindow:length(data2023$Gasoline100)]))*100
+cat('MA MAPE:\n')
+mapeMA2023
+cat('\n')
+
+
+#Mean Absolute Percentage Error
+mapeExpSm2023 = mean(abs((eExpSm2023)/ data2023$Gasoline100))*100
+cat('Exp Smoothing MAPE:\n')
+mapeExpSm2023
+cat('\n')
+```
+
+Mean Absolute Percentage Error Plot:
+
+```{r}
+avgMAPE_Naive <- mean(abs((eNaive2023) / actual2023) * 100)
+avgMAPE_MA <- mean(abs((eMA2023) / data2023$Gasoline100[optimalWindow:length(data2023$Gasoline100)]) * 100)
+avgMAPE_ExpSm <- mean(abs((eExpSm2023) / data2023$Gasoline100) * 100)
+avgMAPE <- c(avgMAPE_Naive, avgMAPE_MA, avgMAPE_ExpSm)
+methods <- c("Naive", "Moving Average", "Exp Smoothing")
+
+barplot(avgMAPE, names.arg=methods, col=c("blue", "red", "green"), 
+        main="Average MAPE", ylab="MAPE (%)")
+
+```
+
+#### B(c) Find trend in the 1st year’s data set, estimate it and then do a trend-adjusted forecasting
+
+Computing Trend Adjusted Forecast
+
+```{r}
+# we have already computed the average value per month earlier for naive method
+# we use monthly data here for utilizing the a,b later in monthly seasonality 
+prices23 = gasMonthlyPrices2023$gasPrices
+dates23 = seq_along(gasMonthlyPrices2023$`format(data2023$date, "%m")`)
+
+#linear trend projection
+# find a & b
+t = length(dates23)
+St = sum(dates23)
+St2 = sum(dates23^2)
+Sa = sum(prices23)
+StA = sum(prices23 * dates23)
+
+b = (t*StA - St * Sa) / (t*St2 - St^2)
+a = (Sa - b*St) / t
+
+Yt = a+b*dates23
+
+cat('b is:', b, '\n')
+cat('a is:', a, '\n\n')
+cat('Trend values:', Yt, '\n\n')
+
+
+
+```
+
+Trend Adjusted Forecast Plot
+
+```{r}
+plot(dates23, prices23, type = "l", col = "black", main = "Gas Prices Trend Adjusted Forecast 2023", 
+     xlab = "Months", ylab = "Price")
+lines( Yt, col = "red", lty = 2)  
+grid()
+legend('topleft', legend = c('Actual', 'Trend Forecast'), 
+       col = c('black', 'red'), lty = 1)
+grid()
+```
+
+#### B(d) Find seasonality in the 1st year’s data set, estimate the seasonality factor and then adjust your forecasting for seasonality as well.
+
+```{r}
+# Estimating seasonality factors by month
+D23 = gasMonthlyPrices2023$gasPrices
+t = seq_along(gasMonthlyPrices2023$`format(data2023$date, "%m")`)
+S = numeric(length(D23))
+avg2023 = sum(data2023$Gasoline100) / length(data2023$Gasoline100)
+for (i in 1:length(D23)) {
+  S[i] = D23[i] / avg2023
+}
+
+# initialize the level, trend, forecast values
+F = numeric(length(D23))
+L = numeric(length(D23))
+T = numeric(length(D23))
+
+# we have already computed a,b from the linear trend
+L0 = a
+T0 = b
+F[1] = (L0 + T0) * S[1]
+
+#arbitrary smoothing values
+alpha = 0.1
+beta = 0.2
+gamma = 0.1
+
+L[1] = alpha * (D23[1] / S[1]) + (1 - alpha) * (L0 + T0)
+T[1] = beta * (L[1] - L0) + (1 - beta) * T0
+
+for (i in 2:length(D23)) {
+  L[i] = alpha * (D23[i] / S[i]) + (1 - alpha) * (L[i-1] + T[i-1])
+  T[i] = beta * (L[i] - L[i-1]) + (1 - beta) * T[i-1]
+  F[i] = (L[i-1] + T[i-1]) * S[i] 
+}
+
+Fseasonality2023Arb = F
+Fseasonality2023Arb
+
+```
+
+Find optimal smoothing constants α,β,γ
+
+```{r}
+calculateMSE <- function(alpha, beta, gamma, D, S, L0, T0) {
+  # Initialize variables
+  F = numeric(length(D23))
+  L = numeric(length(D23))
+  T = numeric(length(D23))
+  
+  F[1] = (L0 + T0) * S[1]
+  L[1] = alpha * (D23[1] / S[1]) + (1 - alpha) * (L0 + T0)
+  T[1] = beta * (L[1] - L0) + (1 - beta) * T0
+  
+  # Holt-Winters filter
+  for (i in 2:length(D23)) {
+    L[i] = alpha * (D23[i] / S[i]) + (1 - alpha) * (L[i-1] + T[i-1])
+    T[i] = beta * (L[i] - L[i-1]) + (1 - beta) * T[i-1]
+    F[i] = (L[i-1] + T[i-1]) * S[i]
+  }
+  
+  # find the Mean Squared Error
+  mse = mean((D23 - F)^2)
+  return(mse)
+}
+
+# optimal alpha, beta, gamma between the range of 0 to 1
+alpha_values = seq(0.01, 1, by = 0.05)
+beta_values = seq(0.01, 1, by = 0.05)
+gamma_values = seq(0.01, 1, by = 0.05)
+
+bestMSE = Inf
+bestConstants = c(alpha = 0, beta = 0, gamma = 0)
+
+# Test all combinations of alpha, beta, gamma
+for (alpha in alpha_values) {
+  for (beta in beta_values) {
+    for (gamma in gamma_values) {
+      mse = calculateMSE(alpha, beta, gamma, D23, S, L0, T0)
+      if (mse < bestMSE) {
+        bestMSE = mse
+        bestConstants = c(alpha = alpha, beta = beta, gamma = gamma)
+      }
+    }
+  }
+}
+
+cat("Optimal alpha:", bestConstants['alpha'], "\n")
+cat("Optimal beta:", bestConstants['beta'], "\n")
+cat("Optimal gamma:", bestConstants['gamma'], "\n")
+cat("Best MSE:", bestMSE, "\n")
+
+
+```
+
+Estimate seasonality forecast based on optimal α,β,γ
+
+```{r}
+# Estimating seasonality factors by month
+D23 = gasMonthlyPrices2023$gasPrices
+t = seq_along(gasMonthlyPrices2023$`format(data2023$date, "%m")`)
+S = numeric(length(D23))
+avg2023 = sum(data2023$Gasoline100) / length(data2023$Gasoline100)
+for (i in 1:length(D23)) {
+  S[i] = D23[i] / avg2023
+}
+
+# initialize the level, trend, forecast values
+F = numeric(length(D23))
+L = numeric(length(D23))
+T = numeric(length(D23))
+
+# we have already computed a,b from the linear trend
+L0 = a
+T0 = b
+F[1] = (L0 + T0) * S[1]
+
+#arbitrary smoothing values
+alpha = bestConstants['alpha']
+beta = bestConstants['beta']
+gamma = bestConstants['gamma']
+
+L[1] = alpha * (D23[1] / S[1]) + (1 - alpha) * (L0 + T0)
+T[1] = beta * (L[1] - L0) + (1 - beta) * T0
+
+for (i in 2:length(D23)) {
+  L[i] = alpha * (D23[i] / S[i]) + (1 - alpha) * (L[i-1] + T[i-1])
+  T[i] = beta * (L[i] - L[i-1]) + (1 - beta) * T[i-1]
+  F[i] = (L[i-1] + T[i-1]) * S[i] 
+}
+
+Fseasonality2023Opt = F
+Fseasonality2023Opt
+
+```
+
+Seasonality Adjusted Forecast Plot
+
+```{r}
+plot(t, D23, type = "l", col = "black", main = "Gas Prices Forecast 2023", 
+     xlab = "Months", ylab = "Price")
+lines(t, Fseasonality2023Opt, col = "blue", lty = 2)  
+lines(t, Fseasonality2023Arb, col = "red", lty = 2)
+grid()
+legend('topleft', legend = c('Actual', 'Seasonality Optimal', 'Seasonality Arbitrary'), 
+       col = c('black', 'blue', 'red'), lty = 1)
+grid()
+```
+
+#### C. Do the same (as in B.) for the 2nd year’s (cleaned up) data set. Keep in mind that any parameters may have to be re-optimized for the 2nd year data set
+
+#### C(a) Use 3 different forecasting techniques to perform the forecasting of level (without trend or seasonality adjustments). If a technique is parametric, try to choose the optimal value for this parameter.\*
+
+Since we've started analyzing gas prices of 2023 for part B, we decided to use gas prices 2022 for part C (and not 2024 since its on going)
+
+The cleaned version of the dataset provides gasoline prices in Greece for year 2022
+
+```{r}
+data2022 = read.csv("Energy_Prices2022.csv")
+data2022[is.na(data2022)] = 0
+data2022$date = as.Date(data2022$date, format = "%Y-%m-%d")
+data2022 = data2022[order(data2022$date),] # order by date to check dataset
+head(data2022)
+
+```
+
+```{r}
+library(dplyr)
+gasMonthlyPrices2022 = data2022 %>% group_by(format(data2022$date, "%m")) %>%
+  summarise(gasPrices = mean(Gasoline100),
+            .groups = 'drop')
+
+plot(gasMonthlyPrices2022$`format(data2022$date, "%m")`, col = 'blue',
+     gasMonthlyPrices2022$gasPrices, type = "o", main="Gasoline100 Prices 2022",
+     xlab = "Months", ylab = "Value in EUR", xaxt = "n")
+axis(1, at = gasMonthlyPrices2022$`format(data2022$date, "%m")`, 
+     labels = format(gasMonthlyPrices2022$`format(data2022$date, "%m")`))
+grid()
+```
+
+## i) Naive Method:
+
+```{r}
+# insert prices in a variable
+actual2022 <- gasMonthlyPrices2022$gasPrices
+naive2022 <- numeric(length(actual2022))
+
+# iterate for the length of 'actual' variable to fill every value in 'naive' variable
+for (i in 1:length(actual2022))
+{
+  naive2022[i] <- actual2022[1]
+}
+
+cat('Actual Values Per Month\n')
+actual2022
+cat('\n')
+cat('Naive Method\n') 
+naive2022
+
+```
+
+Naive Method Plot:
+
+```{r}
+plot(actual2022, type='l', col='red', main='Actual VS Naive',
+                 xlab = "Months", ylab = "Value in EUR", xaxt = 'n')
+# axis(1, at = 1:length(data$TIME), labels = format(data$TIME, "%b"))
+lines(naive2022, type='l', col='purple')
+legend('topright', legend=c('Actual', 'Naive'), col='c'('red', 'purple'), lty=1)
+axis(1, at = gasMonthlyPrices2022$`format(data2022$date, "%m")`, 
+     labels = format(gasMonthlyPrices2022$`format(data2022$date, "%m")`))
+grid()
+```
+
+## ii) Moving Average Method:
+
+MA based on whole dataset
+
+```{r}
+#check moving average window in the whole dataset to see the fit
+
+# arbitrary choice of window before computing the optimal
+windowArbitrary <- 7
+
+moving_avg_WholeYear = c()
+
+# FOR loop to compute moving average
+for (i in 1:(length(data2022$Gasoline100) - windowArbitrary + 1)) {
+  windowSum <- sum(data2022$Gasoline100[i:(i + windowArbitrary - 1)])
+  avg <- windowSum / windowArbitrary
+  moving_avg_WholeYear <- c(moving_avg_WholeYear, avg)
+}
+
+#plot to visualize MA for 2023
+plot(data2022$Gasoline100, type = "l", col = "blue", xlab = "Days", ylab = "Value in EUR", main = "Testing Moving Average (7) for 2022")
+# moving average has fewer points so adjust to the length of the data
+lines((windowArbitrary:length(data2022$Gasoline100)), moving_avg_WholeYear, type = "l", col = "red")
+legend("topleft", legend = c("Actual Data", "Moving Average"), col = c("blue", "red"), lty = 1, pch = 1)
+
+```
+
+MA based on first month's data
+
+```{r}
+# compute values for months 2 to 12 based on january data
+# Gas Prices for Jan2023
+pricesJan22 <- data2022$Gasoline100[1:31]
+pricesmonth2to12_2022 <- data2022$Gasoline100[-(1:31)] 
+
+window = windowArbitrary
+
+movingavg_Jan22 = c()
+
+# FOR loop to compute moving average for January
+for (i in 1:(length(pricesJan22) - window + 1)) {
+  windowSum <- sum(pricesJan22[i:(i + window - 1)])
+  avg <- windowSum / window
+  movingavg_Jan23 <- c(movingavg_Jan22, avg)
+}
+
+# For loop to compute MA for feb to dec
+forecastedPrices = pricesJan22
+
+for (i in (length(pricesJan22)+1):(length(pricesJan22) + length(pricesmonth2to12_2022))) {
+  forecast = mean(forecastedPrices[(i - window):(i - 1)]) #calculate moving avergae for the forecast
+  forecastedPrices = c(forecastedPrices, forecast)
+}
+
+
+ForecastMA22Arb = c(rep(0, window-1), movingavg_Jan22, forecastedPrices[32:length(forecastedPrices)])
+head(ForecastMA22Arb, 40)
+```
+
+Compute optimal window
+
+```{r}
+window = seq(2, 200, by = 1) 
+# initialize to store values
+mad_MA22 = numeric(length(window)) # initialize to store all MAD values
+
+for (a in 1:length(window)) {
+  currentWindow  = window[a]
+
+  if (currentWindow  > length(pricesJan22)) {
+    mad_MA22[a] = NA
+    next
+  }
+  
+  movingavg_Jan22 = c()
+
+                    
+  # FOR loop to compute moving average for January
+  for (i in 1:(length(pricesJan22) - currentWindow  + 1)) {
+    windowSum <- sum(pricesJan22[i:(i + currentWindow  - 1)])
+    avg <- windowSum / currentWindow 
+    movingavg_Jan22 <- c(movingavg_Jan22, avg)
+  }
+
+   
+    eMA2022 = pricesJan22[currentWindow :length(pricesJan22)] - movingavg_Jan22
+    mad_MA22[a] = mean(abs(eMA2022))
+}
+
+# Find the optimal window size based on the lowest MAD value
+optimalWindow = window[which.min(mad_MA22)]
+cat('The optimal window is:', optimalWindow)
+```
+
+Compute forecast based on optimal window
+
+```{r}
+# compute values for months 2 to 12 based on january data
+# Gas Prices for Jan2023
+pricesJan22 <- data2022$Gasoline100[1:31]
+pricesmonth2to12_2022 <- data2022$Gasoline100[-(1:31)] 
+
+
+window = optimalWindow
+
+movingavg_Jan22 = c()
+
+# FOR loop to compute moving average for January
+for (i in 1:(length(pricesJan22) - window + 1)) {
+  windowSum <- sum(pricesJan22[i:(i + window - 1)])
+  avg <- windowSum / window
+  movingavg_Jan22 <- c(movingavg_Jan22, avg)
+}
+
+# For loop to compute MA for feb to dec
+forecastedPrices = pricesJan22
+
+for (i in (length(pricesJan22)+1):(length(pricesJan22) + length(pricesmonth2to12_2022))) {
+  forecast = mean(forecastedPrices[(i - window):(i - 1)]) #calculate moving avergae for the forecast
+  forecastedPrices = c(forecastedPrices, forecast)
+}
+
+
+ForecastMA22 = c(rep(0, window-1), movingavg_Jan22, forecastedPrices[32:length(forecastedPrices)])
+head(ForecastMA22, 40)
+```
+
+Moving Average Plot:
+
+```{r}
+plot(data2022$Gasoline100, type='l', col='black', main='2022 Actual VS MA',
+                 xlab = " ", ylab = "Value in EUR", xaxt = 'n')
+lines(ForecastMA22, type = "l", col = "red")
+lines(ForecastMA22Arb, type = "l", col = "green")
+legend('topright', legend=c('Actual', 'MA Optimal(2)','MA Arbitrary(7)'), col='c'('black', 'red', 'green'), lty=1)
+grid()
+```
+
+## iii) Simple Exponential Smoothing (SES) Method:
+
+For arbitrary α = 0.5
+
+```{r}
+# forecast based on first month's data
+pricesJan22 <- data2022$Gasoline100[1:31]
+pricesmonth2to12_2022 <- data2022$Gasoline100[-(1:31)]
+
+alpha = 0.5
+SES_Jan22 = c()
+SES_Jan22[1] = pricesJan22[1]
+
+                    
+# FOR loop to compute SES for January
+for (i in 2:(length(pricesJan22)+1)) {
+  SES_Jan22[i] <- SES_Jan22[i - 1] + alpha * (pricesJan22[i - 1] - SES_Jan22[i - 1])
+}
+
+SES_2to12_22 = SES_Jan22
+
+# FOR loop to compute SES for feb to dec
+for (i in (length(pricesJan22)+2):(length(pricesJan22) + length(pricesmonth2to12_2022))) {
+  SES_2to12_22[i] <- SES_2to12_22[i - 1] + alpha * (SES_2to12_22[i - 1] - SES_2to12_22[i - 1])
+}
+
+ForecastSES22 = c(SES_Jan22, SES_2to12_22[33:length(SES_2to12_22)])
+
+head(ForecastSES22, 40)
+
+```
+
+Computing optimal α
+
+```{r}
+# forecast based on first month's data
+pricesJan22 <- data2022$Gasoline100[1:31]
+pricesmonth2to12_2022 <- data2022$Gasoline100[-(1:31)]
+
+alphaAll = seq(0.01, 1, by = 0.01) # α must be between 0 and 1
+# initialize to store values
+mad_exp22 = numeric(length(alphaAll)) # initialize to store all MAD values
+
+for (a in 1:length(alphaAll)) {
+  alpha = alphaAll[a]
+
+  SES_Jan22 = c()
+  SES_Jan22[1] = pricesJan22[1]
+
+                    
+# FOR loop to compute SES for January
+  for (i in 2:(length(pricesJan22)+1)) {
+    SES_Jan22[i] <- SES_Jan22[i - 1] + alpha * (pricesJan22[i - 1] - SES_Jan22[i - 1])
+    }
+  SES_2to12_22 = SES_Jan22
+
+# FOR loop to compute SES for feb to dec
+  for (i in (length(pricesJan22)+2):(length(pricesJan22) + length(pricesmonth2to12_2022))) {
+    SES_2to12_22[i] <- SES_2to12_22[i - 1] + alpha * (SES_2to12_22[i - 1] - SES_2to12_22[i - 1])
+    }
+  
+  ForecastSES22 = c(SES_Jan22, SES_2to12_22[33:length(SES_2to12_22)])
+  mad_exp22[a] = mean(abs(ForecastSES22 - data2022$Gasoline100))
+  mad_exp22
+}
+
+alphaOpt = alphaAll[which.min(mad_exp22)]
+
+# Print the optimal alpha
+cat('The optimal α is:', alphaOpt, '\n\n')
+cat('The min MAD is:', min(mad_exp22))
+```
+
+For optimal α = 1
+
+```{r}
+# forecast based on first month's data
+pricesJan22 <- data2022$Gasoline100[1:31]
+pricesmonth2to12_2022 <- data2022$Gasoline100[-(1:31)]
+
+alpha = alphaOpt
+SES_Jan22Opt = c()
+SES_Jan22Opt[1] = pricesJan22[1]
+
+                    
+# FOR loop to compute SES for January
+for (i in 2:(length(pricesJan22)+1)) {
+  SES_Jan22Opt[i] <- SES_Jan22Opt[i - 1] + alpha * (pricesJan22[i - 1] - SES_Jan22Opt[i - 1])
+}
+
+SES_2to12_22 = SES_Jan22Opt
+
+# FOR loop to compute SES for feb to dec
+for (i in (length(pricesJan22)+2):(length(pricesJan22) + length(pricesmonth2to12_2022))) {
+  SES_2to12_22[i] <- SES_2to12_22[i - 1] + alpha * (SES_2to12_22[i - 1] - SES_2to12_22[i - 1])
+}
+
+ForecastSES22Opt = c(SES_Jan22Opt, SES_2to12_22[33:length(SES_2to12_22)])
+
+head(ForecastSES22Opt, 40)
+```
+
+Exponential Smoothing plot
+
+```{r}
+plot(data2022$date, data2022$Gasoline100, type='l', col='blue', main='Actual VS Exp Smoothing',
+     xlab="Months", ylab="Value in EUR")
+lines(data2022$date, ForecastSES22, col='green')  
+lines(data2022$date, ForecastSES22Opt, col='red') 
+legend('topright', 
+       legend=c('Actual', 'Arbitrary 0.5', 'Optimal 1.00'), 
+       col=c('blue', 'green', 'red'), 
+       lty=1)
+grid()
+```
+
+#### C(b) Compare these 3 techniques in 2 different ways.
+
+### i) Mean Squared Error (MSE)
+
+```{r}
+#MSE for Naive Method
+eNaive2022 = actual2022-naive2022
+mseNaive2022 = mean((eNaive2022)^2)
+cat('Naive MSE:\n')
+mseNaive2022
+cat('\n')
+
+#MSE for Moving Average Method
+# plotting only the values after the first window 
+eMA2022 = data2022$Gasoline100[optimalWindow:length(data2022$Gasoline100)] - ForecastMA22[optimalWindow:length(ForecastMA22)]
+mseMA2022 = mean((eMA2022)^2)
+cat('MA MSE:\n')
+mseMA2022
+cat('\n')
+
+#MSE for Exponential Smoothing Method
+eExpSm2022 = data2022$Gasoline100-ForecastSES22Opt
+mseExpSm2022 = mean((eExpSm2022)^2)
+cat('Exp Smoothing MSE:\n')
+mseExpSm2022
+
+```
+
+Mean Squared Error Plot:
+
+```{r}
+plot(((eNaive2022)^2), type='l', col='blue', main='Mean Squared Error Point by Point',
+                 xlab = "", ylab = "Squared Error", xaxt = 'n')
+# axis(1, at = 1:length(data$TIME), labels = format(data$TIME, "%b"))
+lines(((eMA2022)^2), type='l', col='red')
+lines(((eExpSm2022)^2), type='l', col='green')
+legend('topright', legend=c('mseNaive', 'mseMA', 'mseExpSm'), col='c'('blue', 'red', 'green'), lty=1)
+grid() 
+```
+
+### ii) Mean Absolute Percentage Error (MAPE)
+
+```{r}
+# we use the already computed values for error
+#Mean Absolute Percentage Error
+mapeNaive2022 = mean(abs((eNaive2022)/actual2022))*100
+cat('Naive MAPE:\n')
+mapeNaive2022
+cat('\n')
+
+#Mean Absolute Percentage Error
+# plotting only the values after the first window 
+mapeMA2022 = mean(abs((eMA2022)/ data2022$Gasoline100[optimalWindow:length(data2022$Gasoline100)]))*100
+cat('MA MAPE:\n')
+mapeMA2022
+cat('\n')
+
+#Mean Absolute Percentage Error
+mapeExpSm2022 = mean(abs((eExpSm2022)/ data2022$Gasoline100))*100
+cat('Exp Smoothing MAPE:\n')
+mapeExpSm2022
+cat('\n')
+
+```
+
+Mean Absolute Percentage Error Plot:
+
+```{r}
+plot((abs((eNaive2022) / actual2022)) * 100, type = 'l', col = 'blue', 
+     main = 'Mean Absolute Percentage Error Point by Point', xlab = " ", ylab = "Percentage Error (%)", xaxt = 'n')
+lines((abs((eMA2022) / data2022$Gasoline100[optimalWindow:length(data2022$Gasoline100)])) * 100, type = 'l', col = 'red')
+lines((abs((eExpSm2022) / data2022$Gasoline100)) * 100, type = 'l', col = 'green')
+legend('topleft', legend = c('Naive', 'Moving Avg', 'Exp Smoothing'), 
+       col = c('blue', 'red', 'green'), lty = 1)
+grid()
+```
+
+#### C(c). Find a trend in the 2nd year’s data set, estimate it and then do a trend-adjusted forecasting
+
+Computing Trend Adjusted Forecast
+
+```{r}
+# we have already computed the average value per month earlier for naive method
+# we use monthly data here for utilizing the a,b later in monthly seasonality 
+prices22 = gasMonthlyPrices2022$gasPrices
+dates22 = seq_along(gasMonthlyPrices2022$`format(data2022$date, "%m")`)
+
+#linear trend projection
+# find a & b
+t = length(dates22)
+St = sum(dates22)
+St2 = sum(dates22^2)
+Sa = sum(prices22)
+StA = sum(prices22 * dates22)
+
+b22 = (t*StA - St * Sa) / (t*St2 - St^2)
+a22 = (Sa - b22*St) / t
+
+Yt2022 = a22+b22*dates22
+
+cat('b is:', b22, '\n')
+cat('a is:', a22, '\n\n')
+cat('Trend values:', Yt2022, '\n\n')
+
+```
+
+Trend Adjusted Forecast Plot
+
+```{r}
+plot(dates22, prices22, type = "l", col = "black", main = "Gas Prices Trend Adjusted Forecast 2022", 
+     xlab = "Months", ylab = "Price")
+lines( Yt2022, col = "red", lty = 2)  
+grid()
+legend('topleft', legend = c('Actual', 'Trend Forecast'), 
+       col = c('black', 'red'), lty = 1)
+grid()
+```
+
+#### C(d). Find seasonality in the 2nd year’s data set, estimate the seasonality factor and then adjust your forecasting for seasonality as well.\*
+
+```{r}
+# Estimating seasonality factors by month
+D = gasMonthlyPrices2022$gasPrices
+t = seq_along(gasMonthlyPrices2022$`format(data2022$date, "%m")`)
+S = numeric(length(D))
+avg2022 = sum(data2022$Gasoline100) / length(data2022$Gasoline100)
+for (i in 1:length(D)) {
+  S[i] = D[i] / avg2022
+}
+
+# initialize the level, trend, forecast values
+F = numeric(length(D))
+L = numeric(length(D))
+T = numeric(length(D))
+
+# we have already computed a,b from the linear trend
+L0 = a22
+T0 = b22
+F[1] = (L0 + T0) * S[1]
+
+alpha = 0.1
+beta = 0.2
+gamma = 0.1
+
+L[1] = alpha * (D[1] / S[1]) + (1 - alpha) * (L0 + T0)
+T[1] = beta * (L[1] - L0) + (1 - beta) * T0
+
+for (i in 2:length(D)) {
+  L[i] = alpha * (D[i] / S[i]) + (1 - alpha) * (L[i-1] + T[i-1])
+  T[i] = beta * (L[i] - L[i-1]) + (1 - beta) * T[i-1]
+  F[i] = (L[i-1] + T[i-1]) * S[i] 
+}
+
+Fseasonality2022Arb = F
+Fseasonality2022Arb
+```
+
+Find optimal smoothing constants α,β,γ
+
+```{r}
+calculateMSE <- function(alpha, beta, gamma, D, S, L0, T0) {
+  # Initialize variables
+  F = numeric(length(D))
+  L = numeric(length(D))
+  T = numeric(length(D))
+  
+  F[1] = (L0 + T0) * S[1]
+  L[1] = alpha * (D[1] / S[1]) + (1 - alpha) * (L0 + T0)
+  T[1] = beta * (L[1] - L0) + (1 - beta) * T0
+  
+  # Holt-Winters filter
+  for (i in 2:length(D)) {
+    L[i] = alpha * (D[i] / S[i]) + (1 - alpha) * (L[i-1] + T[i-1])
+    T[i] = beta * (L[i] - L[i-1]) + (1 - beta) * T[i-1]
+    F[i] = (L[i-1] + T[i-1]) * S[i]
+  }
+  
+  # find the Mean Squared Error
+  mse = mean((D - F)^2)
+  return(mse)
+}
+
+# optimal alpha, beta, gamma between the range of 0 to 1
+alpha_values = seq(0.01, 1, by = 0.05)
+beta_values = seq(0.01, 1, by = 0.05)
+gamma_values = seq(0.01, 1, by = 0.05)
+
+bestMSE = Inf
+bestConstants2022 = c(alpha = 0, beta = 0, gamma = 0)
+
+# Test all combinations of alpha, beta, gamma
+for (alpha in alpha_values) {
+  for (beta in beta_values) {
+    for (gamma in gamma_values) {
+      mse = calculateMSE(alpha, beta, gamma, D, S, L0, T0)
+      if (mse < bestMSE) {
+        bestMSE = mse
+        bestConstants2022 = c(alpha = alpha, beta = beta, gamma = gamma)
+      }
+    }
+  }
+}
+
+cat("Optimal alpha:", bestConstants2022['alpha'], "\n")
+cat("Optimal beta:", bestConstants2022['beta'], "\n")
+cat("Optimal gamma:", bestConstants2022['gamma'], "\n")
+cat("Best MSE:", bestMSE, "\n")
+```
+
+Estimate seasonality forecast based on optimal α,β,γ
+
+```{r}
+D = gasMonthlyPrices2022$gasPrices
+t = seq_along(gasMonthlyPrices2022$`format(data2022$date, "%m")`)
+S = numeric(length(D))
+avg2022 = sum(data2022$Gasoline100) / length(data2022$Gasoline100)
+for (i in 1:length(D)) {
+  S[i] = D[i] / avg2022
+}
+
+# initialize the level, trend, forecast values
+F = numeric(length(D))
+L = numeric(length(D))
+T = numeric(length(D))
+
+# we have already computed a,b from the linear trend
+L0 = a22
+T0 = b22
+F[1] = (L0 + T0) * S[1]
+
+alpha = bestConstants2022['alpha']
+beta = bestConstants2022['beta']
+gamma = bestConstants2022['gamma']
+
+L[1] = alpha * (D[1] / S[1]) + (1 - alpha) * (L0 + T0)
+T[1] = beta * (L[1] - L0) + (1 - beta) * T0
+
+for (i in 2:length(D)) {
+  L[i] = alpha * (D[i] / S[i]) + (1 - alpha) * (L[i-1] + T[i-1])
+  T[i] = beta * (L[i] - L[i-1]) + (1 - beta) * T[i-1]
+  F[i] = (L[i-1] + T[i-1]) * S[i] 
+}
+
+Fseasonality2022Opt = F
+Fseasonality2022Opt
+```
+
+Seasonality Adjusted Forecast Plot
+
+```{r}
+plot(t, D, type = "l", col = "black", main = "Gas Prices Forecast 2022", 
+     xlab = "Months", ylab = "Price")
+lines(t, Fseasonality2022Opt, col = "purple", lty = 2)  
+lines(t, Fseasonality2022Arb, col = "red", lty = 2)
+grid()
+legend('topleft', legend = c('Actual', 'Seasonality Optimal', 'Seasonality Arbitrary'), 
+       col = c('black', 'purple', 'red'), lty = 1)
+grid()
+```
+
+#### D. Compare the 2 data sets in terms of the forecasts you made and the available actual data and try to describe quantitatively how they differ {.underline}
+
+#### i) Forecasting Techniques
+
+```{r}
+#naive method was calculating in avg of jan2023 prices, so here we adjust naive to fit the plot properly
+naive2023forthisPlot = rep(naive2023[1], length(data2023$Gasoline100))
+#plot of all forecasting techniques in 2023
+plot(data2023$Gasoline100, type = "l", col = "black", main = "Gas Prices Forecasting Techniques 2023", 
+     xlab = "Days", ylab = "Price")
+lines(ForecastMA23, col = "purple", lty = 2)  
+lines(ForecastSES23Opt, col = "red", lty = 2) 
+lines(naive2023forthisPlot, col = "blue", lty = 2) 
+grid()
+legend('topleft', legend = c('Actual', 'Moving Average', 'ExpSmoothing', 'Naive'), 
+       col = c('black', 'purple', 'red', 'blue'), lty = 1)
+grid()
+```
+
+```{r}
+#naive method was calculating in avg of jan2022 prices, so here we adjust naive to fit the plot properly
+naive2022forthisPlot = rep(naive2022[1], length(data2022$Gasoline100))
+#plot of all forecasting techniques in 2022
+plot(data2022$Gasoline100, type = "l", col = "black", main = "Gas Prices Forecasting Techniques 2022", 
+     xlab = "Days", ylab = "Price")
+lines(ForecastMA22, col = "purple", lty = 2)  
+lines(ForecastSES22Opt, col = "red", lty = 2) 
+lines(naive2022forthisPlot, col = "blue", lty = 2) 
+grid()
+legend('topleft', legend = c('Actual', 'Moving Average', 'ExpSmoothing', 'Naive'), 
+       col = c('black', 'purple', 'red', 'blue'), lty = 1)
+grid()
+```
+
+#### i) Error Comparison
+
+```{r}
+comparison_table <- data.frame(
+  Technique = c("Naive", "Moving Average", "Exponential Smoothing"),
+  MSE2022 = c(mseNaive2022, mseMA2022, mseExpSm2022),
+  MSE2023 = c(mseNaive2023, mseMA2023, mseExpSm2023),
+  MAPE2022 = c(mapeNaive2022, mapeMA2022, mapeExpSm2022),
+  MAPE2023 = c(mapeNaive2023, mapeMA2023, mapeExpSm2023)
+)
+comparison_table
+
+
+```
+
+#### iii) Trend Analysis Comparison
+```{r}
+par(mfrow = c(1, 2))  # Set up 1 row and 2 columns for side-by-side plots
+plot(dates22, prices22, type = "l", col = "black", 
+     main = "Trend Forecast 2022", xlab = "Months", ylab = "Prices")
+lines(Yt2022, col = "red", lwd = 2)  # Add trend line (adjust with your actual trend data)
+legend("topright", legend = c("Actual", "Trend Forecast"), col = c("black", "red"), lty = 1)
+grid()
+plot(dates23, prices23, type = "l", col = "black", 
+     main = "Trend Forecast 2023", xlab = "Months", ylab = "Prices")
+lines(Yt, col = "purple", lwd = 2)  # Add trend line (adjust with your actual trend data)
+legend("topright", legend = c("Actual", "Trend Forecast"), col = c("black", "purple"), lty = 1)
+grid()
+```
+
+```{r}
+par(mfrow = c(1, 2))
+
+plot(Yt2022, type = "l", col = "blue", 
+     main = "Trend Forecast 2022", xlab = "Days", ylab = "Prices")
+plot(Yt, type = "l", col = "red", 
+     main = "Trend Forecast 2023", xlab = "Days", ylab = "Prices")
+
+```
+```{r}
+par(mfrow = c(1, 2))  # Set up 1 row and 2 columns for side-by-side plots
+plot(dates22, prices22, type = "l", col = "black", 
+     main = "Trend Forecast 2022", xlab = "Months", ylab = "Prices")
+lines(Fseasonality2022Opt, col = "red", lwd = 2)  # Add trend line (adjust with your actual trend data)
+legend("topright", legend = c("Actual", "Trend Forecast"), col = c("black", "red"), lty = 1)
+grid()
+plot(dates23, prices23, type = "l", col = "black", 
+     main = "Trend Forecast 2023", xlab = "Months", ylab = "Prices")
+lines(Fseasonality2023Opt, col = "purple", lwd = 2)  # Add trend line (adjust with your actual trend data)
+legend("topright", legend = c("Actual", "Trend Forecast"), col = c("black", "purple"), lty = 1)
+grid()
+```
+
+#### iiii) Seasonality Analysis Comparison
+
+```{r}
+par(mfrow = c(1, 2))
+
+plot(Fseasonality2022Opt, type = "l", col = "black", 
+     main = "Seasonality Forecast 2022", xlab = "Months", ylab = "Seasonality")
+plot(Fseasonality2023Opt, type = "l", col = "orange", 
+     main = "Seasonality Forecast 2023", xlab = "Months", ylab = "Seasonality")
+
+
+```
+
+#### E. Choose a monthly data set (i.e. only 12 data points) from either the 1st or the 2nd year of your data (at regular intervals, e.g. the 1st day of each month). Then find at least another 10 similar data sets from other sources. Run your best forecasting technique for the 12 point data set. Then adjust it taking advantage of the other 10 similar data sets.
+
+Avg Monthly Gas Prices 2023 (12 data points) for Greece + 10 other countries
+
+```{r}
+# library(dplyr)
+# library(dplyr) was used in previous question. if by any chance you run question E on its own, please uncomment previous comment 
+
+greece2023 = read.csv('Greece_data.csv') %>%
+  filter(format(Year) == '2023')
+italy2023 = read.csv('Italy_data.csv') %>%
+  filter(format(Year) == '2023')
+cyprus2023 = read.csv('Cyprus_data.csv') %>%
+  filter(format(Year) == '2023')
+malta2023 = read.csv('Malta_data.csv') %>%
+  filter(format(Year) == '2023')
+spain2023 = read.csv('Spain_data.csv') %>%
+  filter(format(Year) == '2023')
+portugal2023 = read.csv('Portugal_data.csv') %>%
+  filter(format(Year) == '2023')
+croatia2023 = read.csv('Croatia_data.csv') %>%
+  filter(format(Year) == '2023')
+france2023 = read.csv('France_data.csv') %>%
+  filter(format(Year) == '2023')
+bulgaria2023 = read.csv('Bulgaria_data.csv') %>%
+  filter(format(Year) == '2023')
+slovenia2023 = read.csv('Slovenia_data.csv') %>%
+  filter(format(Year) == '2023')
+austria2023 = read.csv('Austria_data.csv') %>%
+  filter(format(Year) == '2023')
+```
+
+Apply exponential smoothing in Greece's dataset
+
+#### i) Optimize α for Greece dataset
+
+```{r}
+pricesGreece23 <- greece2023$VALUE 
+
+alphaAll = seq(0.01, 1, by = 0.01)  # α must be between 0 and 1
+mad_expgr23 = numeric(length(alphaAll))  # initialize to store all MAD values
+
+for (a in 1:length(alphaAll)) {
+  alpha = alphaAll[a]
+
+  SES_gr23 = c()
+  SES_gr23[1] = pricesGreece23[1]
+
+  # FOR loop to compute SES for January only
+  for (i in 2:(length(pricesGreece23))) {
+    SES_gr23[i] <- SES_gr23[i - 1] + alpha * (pricesGreece23[i - 1] - SES_gr23[i - 1])
+  }
+
+  # We only calculate the MAD for January, no need to forecast for Feb-Dec
+  ForecastSES_Gr23 = SES_gr23
+
+  # Compute MAD (Mean Absolute Deviation) for January only
+  mad_expgr23[a] = mean(abs(ForecastSES_Gr23 - pricesGreece23))
+
+}
+
+# Find the optimal alpha
+alphaOpt = alphaAll[which.min(mad_expgr23)]
+
+# Print the optimal alpha and the corresponding minimum MAD
+cat('Optimal a for Greece 2023 (12 avg monthly data points):', alphaOpt, '\n\n')
+cat('The min MAD is:', min(mad_expgr23))
+
+```
+Compute with optimal α = 0.97
+
+```{r}
+pricesGreece23 <- greece2023$VALUE 
+alpha = alphaOpt
+SES_Greece23Opt = c()
+SES_Greece23Opt[1] = pricesGreece23[1]
+
+# FOR loop to compute SES for January only
+for (i in 2:(length(pricesGreece23))) {
+  SES_Greece23Opt[i] <- SES_Greece23Opt[i - 1] + alpha * (pricesGreece23[i - 1] - SES_Greece23Opt[i - 1])
+}
+
+ForecastSES23_gre_Opt = SES_Greece23Opt
+
+head(ForecastSES23_gre_Opt, 40)  # Display first 40 forecasted values
+```
+
+
+```{r}
+#plot final SES for greece 2023 (12 avg monthly points)
+plot(greece2023$Month,greece2023$VALUE, type = "l", col = "orange", main = "SES Forecast 2023 (AVG Monthly Values)", 
+     xlab = "Month", ylab = "Price in USD")
+lines(ForecastSES23_gre_Opt, col = "red", lty = 2) 
+grid()
+legend('topleft', legend = c('Actual', 'SES Opt 0.97'), 
+       col = c('orange', 'red'), lty = 1)
+grid()
+```
+
+#### ii) Exponential smoothing for all countries
+
+```{r}
+#exponential smoothing for 10 countries
+#store all countries in a list
+countryList <- list(
+  Greece = greece2023$VALUE, 
+  Italy = italy2023$VALUE, 
+  Cyprus = cyprus2023$VALUE,
+  Malta = malta2023$VALUE,
+  Spain = spain2023$VALUE,
+  Portugal = portugal2023$VALUE,
+  Croatia = croatia2023$VALUE,
+  France = france2023$VALUE,
+  Bulgaria = bulgaria2023$VALUE,
+  Slovenia = slovenia2023$VALUE,
+  Austria = austria2023$VALUE
+)
+forecastList = list()
+
+# Apply exponential smoothing for each dataset
+for (country in names(countryList)) {
+  prices <- countryList[[country]]
+  SES_forecast = c()
+  SES_forecast[1] = prices[1]
+
+  for (i in 2:length(prices)) {
+    SES_forecast[i] <- SES_forecast[i - 1] + alpha * (prices[i - 1] - SES_forecast[i - 1])
+  }
+  
+  forecastList[[country]] <- SES_forecast
+}
+
+forecastList
+```
+
+#### iii) Computing A/F ratios for 10 datasets
+
+```{r}
+# Calculate the ratio between the actual demand observed (A) and the forecasted demand (F).
+italyAF = italy2023$VALUE / forecastList[["Italy"]]
+CyprusAF = cyprus2023$VALUE / forecastList[["Cyprus"]]
+MaltaAF = malta2023$VALUE / forecastList[["Malta"]]
+SpainAF = spain2023$VALUE / forecastList[["Spain"]]
+PortugalAF = portugal2023$VALUE / forecastList[["Portugal"]]
+CroatiaAF = croatia2023$VALUE / forecastList[["Croatia"]]
+FranceAF = france2023$VALUE / forecastList[["France"]]
+BulgariaAF = bulgaria2023$VALUE / forecastList[["Bulgaria"]]
+SloveniaAF = slovenia2023$VALUE / forecastList[["Slovenia"]]
+AustriaAF = austria2023$VALUE / forecastList[["Austria"]]
+
+# Calculate the mean (μ) and std. deviation (σ) of the ratios
+
+countriesAFratios <- list(
+  Italy = italyAF,
+  Cyprus = CyprusAF,
+  Malta = MaltaAF,
+  Spain = SpainAF,
+  Portugal = PortugalAF,
+  Croatia = CroatiaAF,
+  France = FranceAF,
+  Bulgaria = BulgariaAF,
+  Slovenia = SloveniaAF,
+  Austria = AustriaAF
+)
+
+
+countries <- names(countriesAFratios)
+mean_af <- numeric(length(countriesAFratios))
+sd_af <- numeric(length(countriesAFratios))
+
+for (i in seq(length(countriesAFratios))) {
+  mean_af[i] <- mean(countriesAFratios[[i]], na.rm = TRUE)
+  sd_af[i] <- sd(countriesAFratios[[i]], na.rm = TRUE)
+}
+
+# Combine results into a data frame
+tableAF <- data.frame(
+  Country = countries,
+  MeanAF = mean_af,
+  StdDevAF = sd_af
+)
+
+# Find the general mean and stdDev of ALL datasets
+meanAFfinal = mean(mean_af)
+
+stdDevAFfinal = sd(sd_af)
+
+cat('Mean of all 10 datasets is:', meanAFfinal, '\n\n')
+cat('Standard Deviation of all 10 datasets is:', stdDevAFfinal, '\n')
+```
+
+#### iiii) Adjust Greece forecast according to above A/F ratio
+
+```{r}
+ExpectedDemandGreece2023 = ForecastSES23_gre_Opt * meanAFfinal
+StdDevofDemandGreece2023 = ForecastSES23_gre_Opt * stdDevAFfinal
+
+cat('Expected Demand for Greece is:', ExpectedDemandGreece2023, '\n\n')
+cat('StdDev is:', StdDevofDemandGreece2023)
+```
+
+```{r}
+plot(greece2023$Month, greece2023$VALUE, type = "o", col = "black", lwd = 2,
+     main = "Actual vs SES vs A/F Ratios", xlab = "Month", ylab = "Price in USD",
+     cex.main = 1.5, cex.lab = 1.2, cex.axis = 1.1)
+
+lines(ForecastSES23_gre_Opt, col = "purple", lty = 2, lwd = 2)
+lines(ExpectedDemandGreece2023, col = "red", lty = 3, lwd = 2)
+grid()
+legend("topleft", legend = c("Actual", "SES Opt 0.97", "AF"), 
+       col = c("black", "purple", "red"), lty = c(1, 2, 3), lwd = 2,
+       cex = 0.8, bty = "n")  # bty = "n" removes the box around the legend
+
+```
